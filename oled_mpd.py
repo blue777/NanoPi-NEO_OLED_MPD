@@ -11,6 +11,7 @@ import signal
 import socket
 import subprocess
 import smbus
+import math
 from PIL import Image
 from PIL import ImageFont
 from PIL import ImageDraw
@@ -18,7 +19,7 @@ from PIL import ImageDraw
 
 mpd_music_dir	= "/media/"
 title_height	= 18
-scroll_unit		= 2
+scroll_unit		= 3
 
 oled_width		= 128
 oled_height		=  64
@@ -198,6 +199,75 @@ def oled_drawImage(image):
 				print("IOError")
 				return -1
 
+
+def ImageHalftoning_FloydSteinberg(image):
+
+	shift	= 20;
+
+	cx, cy = image.size;
+
+	temp	= Image.new('I', (cx, cy));
+	result	= Image.new('L', (cx, cy));
+	
+	tmp		= temp.load();
+	dst		= result.load();
+	
+	# Setup Gamma tablw
+	gamma	= [0]*256;
+	for i in range(256):
+		gamma[i]	= int( math.pow( i / 255.0, 2.2 ) * ((1 << shift) - 1) );
+		
+	# Convert to initial value
+	if image.mode == 'L':
+		src		= image.load();
+		for y in range(cy):
+			for x in range(cx):
+				tmp[(x,y)]	=  gamma[ src[(x,y)] ];
+
+	elif image.mode == 'RGB':
+		src		= image.load();
+		for y in range(cy):
+			for x in range(cx):
+				R,G,B	= src[(x,y)];
+				Y		= (R * 13933 + G * 46871 + B * 4732) >> 16;	# Bt.709
+				tmp[(x,y)]	=  gamma[ Y ];
+
+	elif image.mode == 'RGBA':
+		src		= image.load();
+		for y in range(cy):
+			for x in range(cx):
+				R,G,B,A	= src[(x,y)];
+				Y		= (R * 13933 + G * 46871 + B * 4732) >> 16;	# Bt.709
+				tmp[(x,y)]	=  gamma[ Y ];
+
+	else:
+		raise ValueError('Image.mode is not supported.')	
+
+	# Error diffuse
+	for y in range(cy):
+		for x in range(cx):
+			c	= tmp[(x,y)];
+			e	= c if c < (1 << shift) else (c - ((1 << shift) - 1));
+			
+			dst[(x,y)]	= 0 if c < (1 << shift) else 255;
+
+			# FloydSteinberg
+			#	-		*		7/16
+			#	3/16	5/16	1/16
+			if  (x+1) < cx :
+				tmp[(x+1,y)]	+= e * 7 / 16;
+
+			if (y+1) < cy :
+				if 0 <= (x-1) :
+					tmp[(x-1,y+1)]	+= e * 3 / 16;
+
+				tmp[(x,y+1)]		+= e * 5 / 16;
+
+				if (x+1) < cx :
+					tmp[(x+1,y+1)]	+= e * 1 / 16;
+
+	return	result;
+
 # initialize OLED
 oled_init()
 
@@ -350,7 +420,8 @@ while True:
 
 			if os.path.isfile( cover_path ) :
 				front_image = Image.open(cover_path).convert('L').resize((cover_size-2,cover_size-2),Image.ANTIALIAS)
-				cover_image.paste( front_image.convert('1'), (1,1)) 
+				front_image	= ImageHalftoning_FloydSteinberg( front_image )
+				cover_image.paste( front_image, (1,1)) 
 			else:
 				text_x, text_y = font_audio.getsize("NoImage")
 				cover_draw.text(((cover_size-text_x)/2, (cover_size - text_y)/2 ), "NoImage", font=font_audio, fill=255)
