@@ -17,14 +17,16 @@ from PIL import ImageDraw
 
 
 mpd_music_dir	= "/media/"
-scroll_unit		= 3
-
+title_height	= 18
+scroll_unit		= 2
 
 oled_width		= 128
 oled_height		=  64
-title_height	= 18
 cover_size		= oled_height - title_height - 2
 
+# SSD1306 --> 0
+# SH1106  --> 2
+oled_offset_x	= 0
 
 font_title		= ImageFont.truetype('TakaoPGothic.ttf', int(title_height*11/12), encoding='unic')
 #font_title		= ImageFont.truetype('aqua_pfont.ttf', title_height, encoding='unic')
@@ -99,15 +101,10 @@ def oled_init():
 
 	cmd	+= [0xAE]	#display off
 
-	cmd	+= [0x00]	#set lower column address
-	cmd	+= [0x10]	#set higher column address
-
 	cmd	+= [0x40]	#set display start line
 
-	cmd	+= [0xB0]	#set page address
-
-	cmd	+= [0x81]
-	cmd	+= [0xCF]	
+	cmd	+= [0x81]	# Contrast
+	cmd	+= [0x80]	# 0 - 255, default=0x80
 	
 	cmd	+= [0xA1]	#set segment remap
 
@@ -135,10 +132,10 @@ def oled_init():
 	cmd	+= [0x8D]	#set charge pump enable
 	cmd	+= [0x14]
 
-	cmd	+= [0xAF]	#display ON
-
 	cmd	+= [0x20]	#set addressing mode
-	cmd	+= [0x00]	#set horizontal addressing mode
+	cmd	+= [0x02]	#set page addressing mode
+
+	cmd	+= [0xAF]	#display ON
 
 #	bus.write_i2c_block_data(OLED_address,OLED_CommandMode,cmd)
 
@@ -167,6 +164,18 @@ def oled_drawImage(image):
 	block	= oled_width / 32;
 
 	for page in range(pages):
+
+		addr	= [];
+		addr	+= [0xB0 | page];	# Set Page Address
+		addr	+= [0x10];	# Set Higher Column Address
+		addr	+= [0x00 | oled_offset_x];	# Set Lower Column Address
+
+		try:
+			bus.write_i2c_block_data(OLED_address,OLED_CommandMode,addr)
+		except IOError:
+			print("IOError")
+			return -1
+
 		for blk in range(block):
 			data=[]
 			for b in range(32):
@@ -188,7 +197,7 @@ def oled_drawImage(image):
 			except IOError:
 				print("IOError")
 				return -1
-		
+
 # initialize OLED
 oled_init()
 
